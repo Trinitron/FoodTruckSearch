@@ -1,0 +1,129 @@
+﻿@page "/"
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Food Trucks Map</PageTitle>
+
+<h1>Nearby Food Trucks</h1>
+
+<div class="mb-2">
+    <button class="btn btn-primary" @onclick="LocateAndLoad">Locate me and show trucks</button>
+    <span class="ms-2">@status</span>
+</div>
+
+<div id="map" style="height:600px; width:100%;"></div>
+
+@code {
+    private string status = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // load CSV and auto-locate
+            await LoadAndShowTrucksAsync();
+        }
+    }
+
+    private async Task LocateAndLoad()
+    {
+        await LoadAndShowTrucksAsync(true);
+    }
+
+    private async Task LoadAndShowTrucksAsync(bool forceLocate = false)
+    {
+        status = "Loading dataset...";
+        StateHasChanged();
+
+        var csv = await Http.GetStringAsync("sample-data/Mobile_Food_Facility_Permit.csv");
+        var trucks = ParseCsv(csv)
+            .Where(t => t.Status == "APPROVED" && t.Latitude != 0 && t.Longitude != 0)
+            .Take(10)
+            .ToList();
+
+        status = "Detecting location...";
+        StateHasChanged();
+
+        double? lat = null, lng = null;
+
+        try
+        {
+            var pos = await JS.InvokeAsync<object>("navigator.geolocation.getCurrentPosition");
+        }
+        catch
+        {
+            // ignore - we'll use default
+        }
+
+        // initialize map centered on SF by default; JS will handle markers
+        await JS.InvokeVoidAsync("mapHelper.init", 37.7749, -122.4194);
+
+        status = "Adding markers...";
+        StateHasChanged();
+
+        foreach (var t in trucks)
+        {
+            await JS.InvokeVoidAsync("mapHelper.addMarker", t.Latitude, t.Longitude, t.Applicant + " - " + t.Address);
+        }
+
+        status = $"Loaded {trucks.Count} approved trucks";
+        StateHasChanged();
+    }
+
+    private IEnumerable<Truck> ParseCsv(string csv)
+    {
+        using var reader = new StringReader(csv);
+        string? header = reader.ReadLine();
+        if (header == null) yield break;
+
+        var cols = header.Split(',');
+
+        string? line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            // naive CSV splitting: this dataset doesn't contain quoted commas often
+            var parts = SplitCsvLine(line);
+            if (parts.Length < 16) continue;
+
+            if (!double.TryParse(parts[14], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lat)) lat = 0;
+            if (!double.TryParse(parts[15], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lon)) lon = 0;
+
+            yield return new Truck
+            {
+                Applicant = parts[1],
+                Address = parts[5],
+                Status = parts[10],
+                Latitude = lat,
+                Longitude = lon
+            };
+        }
+    }
+
+    private string[] SplitCsvLine(string line)
+    {
+        var list = new List<string>();
+        var cur = new StringBuilder();
+        bool inQuote = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            var c = line[i];
+            if (c == '"') { inQuote = !inQuote; continue; }
+            if (c == ',' && !inQuote)
+            {
+                list.Add(cur.ToString()); cur.Clear(); continue;
+            }
+            cur.Append(c);
+        }
+        list.Add(cur.ToString());
+        return list.ToArray();
+    }
+
+    private class Truck
+    {
+        public string Applicant { get; set; } = "";
+        public string Address { get; set; } = "";
+        public string Status { get; set; } = "";
+        public double Latitude { get; set; }
+        public double Longitude { get; set; }
+    }
+}

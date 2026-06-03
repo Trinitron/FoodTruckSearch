@@ -1,0 +1,41 @@
+## .NET / Blazor WebAssembly
+
+# Build output
+bin/
+obj/
+out/
+
+# VS / Rider project files
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+*.snupkg
+project.lock.json
+packages/
+.nuget/
+
+# Publish output
+publish/
+**/Properties/PublishProfiles/
+
+# Blazor WASM specific
+wwwroot/_framework/
+
+# User secrets
+**/appsettings.Development.json
+**/secrets.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
