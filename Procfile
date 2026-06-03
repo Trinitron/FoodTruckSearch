@@ -1,1 +1,1 @@
-web: python3 -m http.server $PORT --directory FoodTruckSearch/bin/publish/wwwroot --bind 0.0.0.0
+web: cd Server/bin/publish/; ./Server --urls http://*:$PORT
