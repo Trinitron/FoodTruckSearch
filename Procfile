@@ -1,1 +1,1 @@
-web: dotnet tool restore && dotnet serve --directory FoodTruckSearch/bin/publish/wwwroot --port $PORT --host 0.0.0.0
+web: python3 -m http.server $PORT --directory FoodTruckSearch/bin/publish/wwwroot --bind 0.0.0.0
