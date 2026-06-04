@@ -1,4 +1,4 @@
-﻿@page "/"
+@page "/"
 @inject HttpClient Http
 @inject IJSRuntime JS
 
@@ -6,124 +6,139 @@
 
 <h1>Nearby Food Trucks</h1>
 
-<div class="mb-2">
-    <button class="btn btn-primary" @onclick="LocateAndLoad">Locate me and show trucks</button>
-    <span class="ms-2">@status</span>
+<div class="row g-2 mb-3 align-items-end">
+    <div class="col-auto">
+        <label class="form-label">Latitude</label>
+        <input type="number" class="form-control" step="0.0001" @bind="searchLat" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label">Longitude</label>
+        <input type="number" class="form-control" step="0.0001" @bind="searchLng" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label">Results</label>
+        <input type="number" class="form-control" style="width:80px" min="1" max="100" @bind="resultCount" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label">Preferred food</label>
+        <input type="text" class="form-control" placeholder="e.g. tacos" @bind="foodFilter" />
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-primary" @onclick="Search">Search</button>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-secondary" @onclick="UseMyLocation">Use my location</button>
+    </div>
 </div>
 
-<div id="map" style="height:600px; width:100%;"></div>
+<span class="text-muted small">@status</span>
+
+<div id="map" style="height:600px; width:100%; margin-top:1rem;"></div>
 
 @code {
+    private double searchLat = 37.7749;
+    private double searchLng = -122.4194;
+    private int resultCount = 10;
+    private string foodFilter = "";
     private string status = "";
+    private List<Truck> allTrucks = new();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // load CSV and auto-locate
-            await LoadAndShowTrucksAsync();
+            await LoadCsvAsync();
+            await Search();
+            //await UseMyLocation();
         }
     }
 
-    private async Task LocateAndLoad()
+    private async Task UseMyLocation()
     {
-        await LoadAndShowTrucksAsync(true);
-    }
-
-    private async Task LoadAndShowTrucksAsync(bool forceLocate = false)
-    {
-        status = "Loading dataset...";
-        StateHasChanged();
-
-        var csv = await Http.GetStringAsync("sample-data/Mobile_Food_Facility_Permit.csv");
-        var trucks = ParseCsv(csv)
-            .Where(t => t.Status == "APPROVED" && t.Latitude != 0 && t.Longitude != 0)
-            .Take(10)
-            .ToList();
-
-        status = "Detecting location...";
-        StateHasChanged();
-
-        double? lat = null, lng = null;
-
         try
         {
-            var pos = await JS.InvokeAsync<object>("navigator.geolocation.getCurrentPosition");
+            status = "Detecting location...";
+            StateHasChanged();
+            GeoPosition? pos = await JS.InvokeAsync<GeoPosition>("mapHelper.getLocation");
+            searchLat = pos.Latitude;
+            searchLng = pos.Longitude;
         }
         catch
         {
-            // ignore - we'll use default
+            // keep default SF coords
         }
+        await Search();
+    }
 
-        // initialize map centered on SF by default; JS will handle markers
-        await JS.InvokeVoidAsync("mapHelper.init", 37.7749, -122.4194);
-
-        status = "Adding markers...";
+    private async Task LoadCsvAsync()
+    {
+        status = "Loading dataset...";
         StateHasChanged();
+        var csv = await Http.GetStringAsync("sample-data/Mobile_Food_Facility_Permit.csv");
+        allTrucks = ParseCsv(csv)
+            .Where(t => t.Status == "APPROVED" && (t.Latitude ?? 0) != 0 && (t.Longitude ?? 0) != 0)
+            .ToList();
+    }
 
-        foreach (var t in trucks)
+    private async Task Search()
+    {
+        if (allTrucks.Count == 0)
+            await LoadCsvAsync();
+
+        var keyword = foodFilter.Trim();
+        var results = allTrucks
+            .Where(t => string.IsNullOrEmpty(keyword) ||
+                        t.FoodItems.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => Haversine(searchLat, searchLng, t.Latitude!.Value, t.Longitude!.Value))
+            .Take(resultCount)
+            .ToList();
+
+        await JS.InvokeVoidAsync("mapHelper.init", searchLat, searchLng);
+        await JS.InvokeVoidAsync("mapHelper.addLocationMarker", searchLat, searchLng);
+
+        foreach (var t in results)
         {
-            await JS.InvokeVoidAsync("mapHelper.addMarker", t.Latitude, t.Longitude, t.Applicant + " - " + t.Address);
+            var popup = t.Applicant + " — " + t.Address
+                + (string.IsNullOrEmpty(t.FoodItems) ? "" : "<br/>" + t.FoodItems);
+            await JS.InvokeVoidAsync("mapHelper.addMarker", t.Latitude, t.Longitude, popup);
         }
 
-        status = $"Loaded {trucks.Count} approved trucks";
+        status = $"Showing {results.Count} trucks near ({searchLat:F4}, {searchLng:F4})"
+            + (string.IsNullOrEmpty(keyword) ? "" : $" serving \"{keyword}\"");
         StateHasChanged();
+    }
+
+    private static double Haversine(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double R = 6371;
+        var dLat = (lat2 - lat1) * Math.PI / 180;
+        var dLon = (lon2 - lon1) * Math.PI / 180;
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
+              + Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180)
+              * Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
     }
 
     private IEnumerable<Truck> ParseCsv(string csv)
     {
         using var reader = new StringReader(csv);
-        string? header = reader.ReadLine();
-        if (header == null) yield break;
-
-        var cols = header.Split(',');
-
-        string? line;
-        while ((line = reader.ReadLine()) != null)
+        using var csvReader = new CsvReader(reader, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
         {
-            // naive CSV splitting: this dataset doesn't contain quoted commas often
-            var parts = SplitCsvLine(line);
-            if (parts.Length < 16) continue;
-
-            if (!double.TryParse(parts[14], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lat)) lat = 0;
-            if (!double.TryParse(parts[15], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var lon)) lon = 0;
-
-            yield return new Truck
-            {
-                Applicant = parts[1],
-                Address = parts[5],
-                Status = parts[10],
-                Latitude = lat,
-                Longitude = lon
-            };
-        }
+            HeaderValidated = null,
+            MissingFieldFound = null
+        });
+        return csvReader.GetRecords<Truck>().ToList();
     }
 
-    private string[] SplitCsvLine(string line)
-    {
-        var list = new List<string>();
-        var cur = new StringBuilder();
-        bool inQuote = false;
-        for (int i = 0; i < line.Length; i++)
-        {
-            var c = line[i];
-            if (c == '"') { inQuote = !inQuote; continue; }
-            if (c == ',' && !inQuote)
-            {
-                list.Add(cur.ToString()); cur.Clear(); continue;
-            }
-            cur.Append(c);
-        }
-        list.Add(cur.ToString());
-        return list.ToArray();
-    }
+    private record GeoPosition(double Latitude, double Longitude);
 
     private class Truck
     {
         public string Applicant { get; set; } = "";
         public string Address { get; set; } = "";
         public string Status { get; set; } = "";
-        public double Latitude { get; set; }
-        public double Longitude { get; set; }
+        public string FoodItems { get; set; } = "";
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
     }
 }
