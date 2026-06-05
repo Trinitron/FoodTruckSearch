@@ -1,46 +1,46 @@
 # FoodTruckSearch
 
-A Blazor WebAssembly app for searching food trucks, hosted on Heroku.
+A Blazor WebAssembly app for searching nearby food trucks on an interactive map, hosted on Heroku.
+
+![Home page — map view](docs/screenshot-home.png)
 
 ## Project Structure
 
 ```
 FoodTruckSearchApp/
-├── FoodTruckSearch/   # Blazor WASM client (static files, no server)
-├── Server/            # ASP.NET Core host — serves the Blazor WASM output
-├── Procfile           # Heroku startup command
-└── FoodTruckSearchApp.sln
+├── FoodTruckSearchApp.sln
+└── src/
+    ├── Client/                          # FoodTruckSearch.Client — Blazor WASM
+    │   ├── Layout/                      # NavMenu, MainLayout
+    │   ├── Pages/                       # Home.razor (map), Trucks.razor (table)
+    │   ├── Services/                    # TruckService — CSV loading & search
+    │   └── wwwroot/                     # Static assets, sample data
+    ├── Server/                          # FoodTruckSearch.Server — ASP.NET Core host
+    │   └── Program.cs                   # Serves the Blazor WASM output
+    └── Shared/                          # FoodTruckSearch.Shared — shared models
+        └── Models/
+            ├── Truck.cs
+            └── TruckSearchResult.cs
 ```
 
-## Heroku Deployment
+## Build & Run
 
-### Why a Server project is needed
-
-Blazor WASM is a purely client-side app — `dotnet publish` produces only static files, no executable binary. Heroku's .NET buildpack expects a runnable binary, so a minimal ASP.NET Core `Server` project is included to serve the static output.
-
-### How it works
-
-1. Heroku detects `FoodTruckSearchApp.sln` and runs `dotnet publish`
-2. The `Server` project references `FoodTruckSearch`, so the Blazor WASM output is bundled into the Server's publish directory
-3. The `Procfile` starts the Server binary and binds to Heroku's `$PORT`:
-   ```
-   web: cd Server/bin/publish/; ./Server --urls http://*:$PORT
-   ```
-
-### Deploy
+### Local development
 
 ```bash
-git push heroku main
+dotnet run --project src/Server
 ```
 
-### View logs
+Then open `http://localhost:61469` (or the URL shown in the terminal).
+
+### Build
 
 ```bash
-heroku logs --tail
+dotnet build FoodTruckSearchApp.sln
 ```
 
-## Local Development
+### Publish
 
 ```bash
-dotnet run --project FoodTruckSearch
+dotnet publish src/Server -c Release -o out
 ```

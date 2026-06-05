@@ -1,0 +1,97 @@
+@page "/trucks"
+@inject IJSRuntime JS
+@inject TruckService TruckSvc
+
+<PageTitle>Trucks</PageTitle>
+
+<h1>Nearby Food Trucks</h1>
+
+<div class="row g-2 mb-3 align-items-end">
+    <div class="col-auto">
+        <label class="form-label">Latitude</label>
+        <input type="number" class="form-control" step="0.0001" @bind="searchLat" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label">Longitude</label>
+        <input type="number" class="form-control" step="0.0001" @bind="searchLng" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label">Results</label>
+        <input type="number" class="form-control" style="width:80px" min="1" max="100" @bind="resultCount" />
+    </div>
+    <div class="col-auto">
+        <label class="form-label">Preferred food</label>
+        <input type="text" class="form-control" placeholder="e.g. tacos" @bind="foodFilter" />
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-primary" @onclick="Search">Search</button>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-secondary" @onclick="UseMyLocation">Use my location</button>
+    </div>
+</div>
+
+<span class="text-muted small">@status</span>
+
+@if (results.Count > 0)
+{
+    <table class="table table-striped table-hover mt-3">
+        <thead>
+            <tr>
+                <th>Applicant</th>
+                <th>Address</th>
+                <th>Food Items</th>
+                <th>Distance (km)</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var r in results)
+            {
+                <tr>
+                    <td>@r.Truck.Applicant</td>
+                    <td>@r.Truck.Address</td>
+                    <td>@r.Truck.FoodItems</td>
+                    <td>@r.DistanceKm.ToString("F1")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private double searchLat = 37.7749;
+    private double searchLng = -122.4194;
+    private int resultCount = 10;
+    private string foodFilter = "";
+    private string status = "";
+    private List<TruckSearchResult> results = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Search();
+    }
+
+    private async Task UseMyLocation()
+    {
+        try
+        {
+            status = "Detecting location...";
+            var pos = await JS.InvokeAsync<GeoPosition>("mapHelper.getLocation");
+            searchLat = pos.Latitude;
+            searchLng = pos.Longitude;
+        }
+        catch { }
+        await Search();
+    }
+
+    private async Task Search()
+    {
+        status = "Loading...";
+        var keyword = foodFilter.Trim();
+        results = await TruckSvc.SearchAsync(searchLat, searchLng, resultCount, keyword);
+        status = $"Showing {results.Count} trucks near ({searchLat:F4}, {searchLng:F4})"
+            + (string.IsNullOrEmpty(keyword) ? "" : $" serving \"{keyword}\"");
+    }
+
+    private record GeoPosition(double Latitude, double Longitude);
+}
